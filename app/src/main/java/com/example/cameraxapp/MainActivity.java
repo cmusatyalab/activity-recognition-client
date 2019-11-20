@@ -10,11 +10,14 @@ import androidx.camera.core.ImageCaptureConfig;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.core.PreviewConfig;
+import androidx.camera.core.VideoCapture;
+import androidx.camera.core.VideoCaptureConfig;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -25,7 +28,10 @@ import android.graphics.Matrix;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.time.Clock;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import android.os.Bundle;
@@ -35,12 +41,15 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
 
+@SuppressLint("RestrictedApi")
 public class MainActivity extends AppCompatActivity {
 
     private final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String TAG = "CameraXApp";
 
-    private String[] REQUIRED_PERMISSIONS = new String[] {Manifest.permission.CAMERA};
+    private String[] REQUIRED_PERMISSIONS = new String[] {
+            Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,14 +77,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private TextureView viewFinder;
+    private Executor executor = Executors.newSingleThreadExecutor();
 
     private Runnable startCamera = new Runnable() {
         @Override
         public void run() {
             // Create configuration object for the viewfinder use case
             PreviewConfig previewConfig = new PreviewConfig.Builder()
-                    .setTargetAspectRatio(new Rational(1, 1))
-                    .setTargetResolution(new Size(640, 640))
+                    .setTargetResolution(new Size(640, 480))
                     .build();
 
             // Build the viewfinder use case
@@ -93,58 +102,34 @@ public class MainActivity extends AppCompatActivity {
                     updateTransform();
                 });
 
-            // Create configuration object for the image capture use case
-            ImageCaptureConfig imageCaptureConfig = new ImageCaptureConfig.Builder()
-                    .setTargetAspectRatio(new Rational(1, 1))
-                    // We don't set a resolution for image capture; instead, we
-                    // select a capture mode which will infer the appropriate
-                    // resolution based on aspect ration and requested mode
-                    .setCaptureMode(ImageCapture.CaptureMode.MIN_LATENCY)
-                    .build();
+            VideoCaptureConfig videoCaptureConfig = new VideoCaptureConfig.Builder().build();
+            VideoCapture videoCapture = new VideoCapture(videoCaptureConfig);
 
-            // Build the image capture use case and attach button click listener
-            ImageCapture imageCapture = new ImageCapture(imageCaptureConfig);
             findViewById(R.id.capture_button).setOnClickListener(view -> {
-                File file = new File(getExternalMediaDirs()[0], System.currentTimeMillis() + ".jpg");
-                imageCapture.takePicture(file, new ImageCapture.OnImageSavedListener(){
+                File file = new File(getExternalMediaDirs()[0], "video.mp4");
+                videoCapture.startRecording(file, executor, new VideoCapture.OnVideoSavedListener() {
                     @Override
-                    public void onError(ImageCapture.UseCaseError error, String message,
-                                        @Nullable Throwable exc) {
-                        String msg = "Photo capture failed: " + message;
-                        Toast.makeText(getBaseContext(), msg, Toast.LENGTH_SHORT).show();
-                        Log.e(TAG, msg);
-                        if (exc != null) {
-                            exc.printStackTrace();
+                    public void onVideoSaved(File file) {
+                        try {
+                            byte[] fileContent = Files.readAllBytes(file.toPath());
+                        } catch (java.io.IOException e) {
+                            Log.e(TAG, "Exception reading video file", e);
                         }
+
                     }
 
                     @Override
-                    public void onImageSaved(File file) {
-                        String msg = "Photo capture succeeded: " + file.getAbsolutePath();
-                        Toast.makeText(getBaseContext(), msg, Toast.LENGTH_SHORT).show();
-                        Log.d(TAG, msg);
+                    public void onError(VideoCapture.VideoCaptureError videoCaptureError,
+                                        String message, @Nullable Throwable cause) {
+                        String msg = "Video capture failed: " + message;
+                        Log.e(TAG, msg, cause);
                     }
                 });
 
             });
 
-            // Setup image analysis pipeline that computes average pixel luminance
-            HandlerThread analyzerThread = new HandlerThread("LuminosityAnalysis");
-            analyzerThread.start();
-            ImageAnalysisConfig analyzerConfig =
-                    new ImageAnalysisConfig.Builder()
-                            .setCallbackHandler(new Handler(analyzerThread.getLooper()))
-                            // In our analysis, we care more about the latest image than
-                            // analyzing *every* image
-                            .setImageReaderMode(ImageAnalysis.ImageReaderMode.ACQUIRE_LATEST_IMAGE)
-                            .build();
-
-            ImageAnalysis analyzerUseCase = new ImageAnalysis(analyzerConfig);
-            analyzerUseCase.setAnalyzer(new LuminosityAnalyzer());
-
             // Bind use cases to lifecycle
-            CameraX.bindToLifecycle((LifecycleOwner) MainActivity.this, preview, imageCapture,
-                    analyzerUseCase);
+            CameraX.bindToLifecycle((LifecycleOwner) MainActivity.this, preview, videoCapture);
         }
     };
 
@@ -206,42 +191,5 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return true;
-    }
-
-    private static byte[] toByteArray(ByteBuffer buffer) {
-        buffer.rewind();
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        return data;
-    }
-
-    private class LuminosityAnalyzer implements ImageAnalysis.Analyzer {
-        private long lastAnalyzedTimestamp = 0L;
-
-        @Override
-        public void analyze(ImageProxy image, int rotationDegrees) {
-            long currentTimestamp = System.currentTimeMillis();
-            if (currentTimestamp - lastAnalyzedTimestamp >=
-                    TimeUnit.SECONDS.toMillis(1)) {
-                // Since format in ImageAnalysis is YUV, image.planes[0]
-                // contains the Y (luminance) plane
-                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                // Extract image data from callback object
-                byte[] data = toByteArray(buffer);
-
-                // Convert the data into an array of pixel values
-                int sum = 0;
-                for (byte val : data) {
-                    // Add pixel value
-                    sum += (((int)val) & 0xFF);
-                }
-
-                // Compute average luminance for the image
-                double luma = sum / ((double) data.length);
-                Log.d(TAG, "Average Luminosity " + luma);
-                // Update timestamp of last analyzed frame
-                lastAnalyzedTimestamp = currentTimestamp;
-            }
-        }
     }
 }
