@@ -23,7 +23,9 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 import android.os.Bundle;
+import android.view.Surface;
 import android.view.TextureView;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
 
@@ -68,6 +70,16 @@ public class MainActivity extends AppCompatActivity {
                     this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS);
         }
 
+        // Every time the provided texture view changes, recompute layout
+        viewFinder.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(
+                    View v, int left, int top, int right, int bottom, int oldLeft, int oldTop,
+                    int oldRight, int oldBottom) {
+                updateTransform();
+            }
+        });
+
         Consumer<ResultWrapper> consumer = new Consumer<ResultWrapper>() {
             @Override
             public void accept(ResultWrapper resultWrapper) {
@@ -90,8 +102,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             // Create configuration object for the viewfinder use case
-            PreviewConfig previewConfig = new PreviewConfig.Builder().setTargetResolution(
-                    new Size(640, 480)).build();
+            PreviewConfig previewConfig = new PreviewConfig.Builder().build();
 
             // Build the viewfinder use case
             Preview preview = new Preview(previewConfig);
@@ -107,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
                     parent.addView(viewFinder, 0);
 
                     viewFinder.setSurfaceTexture(previewOutput.getSurfaceTexture());
+                    updateTransform();
                 });
 
             VideoCaptureConfig videoCaptureConfig = new VideoCaptureConfig.Builder()
@@ -147,6 +159,38 @@ public class MainActivity extends AppCompatActivity {
             CameraX.bindToLifecycle(MainActivity.this, preview, videoCapture);
         }
     };
+
+    private void updateTransform() {
+        Matrix matrix = new Matrix();
+
+        float centerX = viewFinder.getWidth() / 2f;
+        float centerY = viewFinder.getHeight() / 2f;
+
+        // Correct preview output to account for display rotation
+        float rotationDegrees;
+        switch (viewFinder.getDisplay().getRotation()) {
+            case Surface.ROTATION_0:
+                rotationDegrees = 0f;
+                break;
+            case Surface.ROTATION_90:
+                rotationDegrees = 90f;
+                break;
+            case Surface.ROTATION_180:
+                rotationDegrees = 180f;
+                break;
+            case Surface.ROTATION_270:
+                rotationDegrees = 270f;
+                break;
+            default:
+                return;
+        }
+
+        matrix.postRotate(-rotationDegrees, centerX, centerY);
+        matrix.preScale((960f/1290f), (1290f/960f), centerX, centerY);
+
+        // Finally, apply transformations to our TextureView
+        viewFinder.setTransform(matrix);
+    }
 
     /**
      * Process result from permission request dialog box, has the request
