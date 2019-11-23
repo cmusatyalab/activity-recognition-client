@@ -1,3 +1,7 @@
 <resources>
-    <string name="app_name">CameraX App</string>
+    <string name="app_name">Activity Recognition</string>
+    <string name="disconnected">Disconnected from Server</string>
+    <string name="recording">Recording</string>
+    <string name="uploading">Uploading</string>
+    <string name="waiting">Waiting for Response</string>
 </resources>
