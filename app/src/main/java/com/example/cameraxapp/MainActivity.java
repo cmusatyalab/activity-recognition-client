@@ -18,6 +18,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.ColorDrawable;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.util.Size;
@@ -57,8 +59,9 @@ public class MainActivity extends AppCompatActivity {
     private final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String TAG = "MainActivity";
     private static final String ENGINE_NAME = "activity_recognition";
-    private static final String SERVER_IP = "deluge.elijah.cs.cmu.edu";
+    // private static final String SERVER_IP = "deluge.elijah.cs.cmu.edu";
     // private static final String SERVER_IP = "gs17934.sp.cs.cmu.edu";
+    private static final String SERVER_IP = "vm030.elijah.cs.cmu.edu";
 
     private String[] REQUIRED_PERMISSIONS = new String[] {
             Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO
@@ -69,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
     private ServerCommCore serverCommCore;
     private TextView output;
     private TextToSpeech textToSpeech;
+    private MediaPlayer mPlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,6 +89,9 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        mPlayer = MediaPlayer.create(getApplicationContext(), R.raw.alert_sound);
+        mPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
 
         viewFinder = findViewById(R.id.view_finder);
         // Request camera permissions
@@ -113,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < resultWrapper.getResultsCount(); i++) {
                     Result result = resultWrapper.getResults(i);
                     if (result.getPayloadType() == PayloadType.TEXT) {
+                        mPlayer.start();
                         textToSpeech.speak(
                                 result.getPayload().toStringUtf8(), TextToSpeech.QUEUE_FLUSH,
                                 null, null);
