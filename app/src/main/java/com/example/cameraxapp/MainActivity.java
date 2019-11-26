@@ -18,6 +18,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.ColorDrawable;
+import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.speech.tts.TextToSpeech;
@@ -91,7 +92,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
         mPlayer = MediaPlayer.create(getApplicationContext(), R.raw.alert_sound);
-        mPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
+        mPlayer.setAudioAttributes(audioAttributes);
 
         viewFinder = findViewById(R.id.view_finder);
         // Request camera permissions
@@ -120,10 +123,11 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < resultWrapper.getResultsCount(); i++) {
                     Result result = resultWrapper.getResults(i);
                     if (result.getPayloadType() == PayloadType.TEXT) {
-                        mPlayer.start();
-                        textToSpeech.speak(
+                        mPlayer.setOnCompletionListener(
+                                (MediaPlayer mediaPlayer) -> textToSpeech.speak(
                                 result.getPayload().toStringUtf8(), TextToSpeech.QUEUE_FLUSH,
-                                null, null);
+                                null, null));
+                        mPlayer.start();
                     } else if (result.getPayloadType() == PayloadType.IMAGE) {
                         runOnUiThread(() -> {
                             // Based on https://stackoverflow.com/a/24946375/859277
@@ -227,7 +231,7 @@ public class MainActivity extends AppCompatActivity {
                         Log.e(TAG, msg, cause);
                     }
                 });
-                viewFinder.postDelayed(videoCapture::stopRecording, 2000);
+                viewFinder.postDelayed(videoCapture::stopRecording, 3000);
             });
 
             // Bind use cases to lifecycle
